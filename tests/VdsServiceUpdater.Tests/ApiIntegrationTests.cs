@@ -68,7 +68,8 @@ public class ApiIntegrationTests
         return req;
     }
 
-    private static async Task<JsonElement> Json(HttpResponseMessage r) => await r.Content.ReadFromJsonAsync<JsonElement>();
+    private static async Task<JsonElement> Json(HttpResponseMessage r) =>
+        await r.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
 
     private static async Task WaitUntil(Func<bool> condition, int timeoutMs = 5000)
     {
@@ -76,7 +77,7 @@ public class ApiIntegrationTests
         while (!condition())
         {
             if (sw.ElapsedMilliseconds > timeoutMs) throw new TimeoutException("Условие не выполнилось за отведённое время.");
-            await Task.Delay(20);
+            await Task.Delay(20, TestContext.Current.CancellationToken);
         }
     }
 
@@ -86,7 +87,7 @@ public class ApiIntegrationTests
     public async Task Health_is_open_and_returns_request_id()
     {
         using var f = new ApiFactory();
-        var r = await f.CreateClient().GetAsync("/health");
+        var r = await f.CreateClient().GetAsync("/health", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         Assert.Equal("ok", (await Json(r)).GetProperty("status").GetString());
@@ -99,7 +100,7 @@ public class ApiIntegrationTests
     public async Task Missing_or_wrong_token_is_401_and_docker_untouched(string? token)
     {
         using var f = new ApiFactory();
-        var r = await f.CreateClient().SendAsync(Post(Body("ghcr.io/org/app:2.0"), token));
+        var r = await f.CreateClient().SendAsync(Post(Body("ghcr.io/org/app:2.0"), token), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
         Assert.Equal("unauthorized", (await Json(r)).GetProperty("code").GetString());
@@ -111,7 +112,7 @@ public class ApiIntegrationTests
     public async Task Empty_token_in_config_disables_protection()
     {
         using var f = new ApiFactory(token: "");
-        var r = await f.CreateClient().SendAsync(Post(Body("ghcr.io/org/app:2.0"), token: null));
+        var r = await f.CreateClient().SendAsync(Post(Body("ghcr.io/org/app:2.0"), token: null), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
     }
 
@@ -121,7 +122,7 @@ public class ApiIntegrationTests
     public async Task Successful_deploy_over_http()
     {
         using var f = new ApiFactory();
-        var r = await f.CreateClient().SendAsync(Post(Body("ghcr.io/org/app:2.0")));
+        var r = await f.CreateClient().SendAsync(Post(Body("ghcr.io/org/app:2.0")), TestContext.Current.CancellationToken);
         var json = await Json(r);
 
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
@@ -142,7 +143,7 @@ public class ApiIntegrationTests
     public async Task Invalid_images_are_rejected_before_touching_anything(string image, int status, string code)
     {
         using var f = new ApiFactory();
-        var r = await f.CreateClient().SendAsync(Post(Body(image)));
+        var r = await f.CreateClient().SendAsync(Post(Body(image)), TestContext.Current.CancellationToken);
 
         Assert.Equal(status, (int)r.StatusCode);
         Assert.Equal(code, (await Json(r)).GetProperty("code").GetString());
@@ -156,7 +157,7 @@ public class ApiIntegrationTests
     public async Task Malformed_body_is_400(string json)
     {
         using var f = new ApiFactory();
-        var r = await f.CreateClient().SendAsync(Post(json));
+        var r = await f.CreateClient().SendAsync(Post(json), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
     }
 
@@ -164,7 +165,7 @@ public class ApiIntegrationTests
     public async Task Oversized_body_is_413()
     {
         using var f = new ApiFactory(maxBody: 256);
-        var r = await f.CreateClient().SendAsync(Post(Body("ghcr.io/org/app:" + new string('1', 1000))));
+        var r = await f.CreateClient().SendAsync(Post(Body("ghcr.io/org/app:" + new string('1', 1000))), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, r.StatusCode);
         Assert.Empty(f.Docker.Runner.Calls);
@@ -174,7 +175,7 @@ public class ApiIntegrationTests
     public async Task Dry_run_over_http_changes_nothing()
     {
         using var f = new ApiFactory();
-        var r = await f.CreateClient().SendAsync(Post("""{"image":"ghcr.io/org/app:2.0","dryRun":true}"""));
+        var r = await f.CreateClient().SendAsync(Post("""{"image":"ghcr.io/org/app:2.0","dryRun":true}"""), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         Assert.Equal("dry_run", (await Json(r)).GetProperty("status").GetString());
@@ -191,12 +192,12 @@ public class ApiIntegrationTests
         var client = f.CreateClient();
 
         for (var i = 0; i < 3; i++)
-            Assert.Equal(422, (int)(await client.SendAsync(Post(Body("ghcr.io/org/app")))).StatusCode);
+            Assert.Equal(422, (int)(await client.SendAsync(Post(Body("ghcr.io/org/app")), TestContext.Current.CancellationToken)).StatusCode);
 
-        var limited = await client.SendAsync(Post(Body("ghcr.io/org/app")));
+        var limited = await client.SendAsync(Post(Body("ghcr.io/org/app")), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
         Assert.True(limited.Headers.Contains("Retry-After"));
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health", TestContext.Current.CancellationToken)).StatusCode);
     }
 
     [Fact]
@@ -206,9 +207,9 @@ public class ApiIntegrationTests
         var client = f.CreateClient();
 
         for (var i = 0; i < 3; i++)
-            Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Post(Body("ghcr.io/org/app:2"), "guess-" + i))).StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(Post(Body("ghcr.io/org/app:2"), "guess-" + i), TestContext.Current.CancellationToken)).StatusCode);
 
-        Assert.Equal(HttpStatusCode.TooManyRequests, (await client.SendAsync(Post(Body("ghcr.io/org/app:2"), "guess-3"))).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await client.SendAsync(Post(Body("ghcr.io/org/app:2"), "guess-3"), TestContext.Current.CancellationToken)).StatusCode);
     }
 
     // ---------- конкурентность и обрыв клиента ----------
@@ -221,9 +222,9 @@ public class ApiIntegrationTests
         using var release = new ManualResetEventSlim();
         f.Docker.OnUp = () => { started.Set(); release.Wait(TimeSpan.FromSeconds(10)); };
 
-        using var cts = new CancellationTokenSource();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var call = f.CreateClient().SendAsync(Post(Body("ghcr.io/org/app:2.0")), cts.Token);
-        Assert.True(started.Wait(TimeSpan.FromSeconds(5)), "деплой не дошёл до docker compose up");
+        Assert.True(started.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), "деплой не дошёл до docker compose up");
 
         cts.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);
@@ -244,10 +245,10 @@ public class ApiIntegrationTests
         f.Docker.OnUp = () => { started.Set(); release.Wait(TimeSpan.FromSeconds(10)); };
         var client = f.CreateClient();
 
-        var first = client.SendAsync(Post(Body("ghcr.io/org/app:2.0")));
-        Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
+        var first = client.SendAsync(Post(Body("ghcr.io/org/app:2.0")), TestContext.Current.CancellationToken);
+        Assert.True(started.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
 
-        var second = await client.SendAsync(Post(Body("ghcr.io/org/app:3.0")));
+        var second = await client.SendAsync(Post(Body("ghcr.io/org/app:3.0")), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
         Assert.Equal("deploy_in_progress", (await Json(second)).GetProperty("code").GetString());
 
