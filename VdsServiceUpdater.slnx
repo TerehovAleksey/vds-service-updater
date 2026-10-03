@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/VdsServiceUpdater/VdsServiceUpdater.csproj" />
+  <Project Path="tests/VdsServiceUpdater.Tests/VdsServiceUpdater.Tests.csproj" />
+</Solution>

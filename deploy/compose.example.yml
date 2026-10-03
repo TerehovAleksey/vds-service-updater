@@ -1,0 +1,30 @@
+# Запуск апдейтера в Docker Compose (один VDS).
+# Сам апдейтер НЕ должен быть целью обновления: обновляйте его вручную (docker compose pull && up -d).
+services:
+  vds-service-updater:
+    image: ghcr.io/myorg/vds-service-updater:1.0.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"          # наружу только через nginx (см. deploy/nginx.example.conf)
+    environment:
+      Updater__Deploy__AllowedImagePrefixes__0: ghcr.io/myorg/
+      Updater__Proxy__KnownProxies__0: 172.18.0.1   # адрес шлюза docker-сети, с которого приходит nginx
+      Updater__Targets__0__Name: main
+      Updater__Targets__0__Type: Compose
+      Updater__Targets__0__File: /opt/stacks/main/compose.yml
+      Updater__Targets__0__StackName: main
+      Updater__Targets__0__Protected__0: "postgres*"
+      Updater__Targets__0__Protected__1: "redis*"
+      Updater__Targets__0__Protected__2: "*-db"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/stacks:/opt/stacks                                   # ТЕ ЖЕ пути, что на хосте
+      - /root/.docker/config.json:/root/.docker/config.json:ro    # логин в реестр (без credsStore)
+      - ./updater.secrets.json:/config/updater.json:ro            # токен вне переменных окружения
+      - updater-data:/data                                        # бэкапы YAML
+volumes:
+  updater-data:
+
+# updater.secrets.json (chmod 600):
+# { "Updater": { "Auth": { "Token": "длинный-случайный-токен" } } }
+# Создать токен: openssl rand -hex 32

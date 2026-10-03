@@ -1,0 +1,49 @@
+# Пример workflow: собрать образ, отправить в GHCR и вызвать VDS Service Updater.
+# Секреты репозитория: UPDATER_URL (https://deploy.example.com), UPDATER_TOKEN.
+name: Build and deploy
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.vars.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: vars
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.vars.outputs.image }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via VDS Service Updater
+        env:
+          UPDATER_URL: ${{ secrets.UPDATER_URL }}
+          UPDATER_TOKEN: ${{ secrets.UPDATER_TOKEN }}
+          IMAGE: ${{ needs.build.outputs.image }}
+        run: |
+          code=$(curl -sS -o response.json -w '%{http_code}' --connect-timeout 10 --max-time 300 \
+            -X POST "$UPDATER_URL/api/v1/deploy" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: $UPDATER_TOKEN" \
+            -d "{\"image\":\"$IMAGE\"}")
+          cat response.json; echo
+          jq -r '(.results // [])[] | "\(.target)/\(.service): \(.status)"' response.json || true
+          test "$code" = 200   # любой код кроме 200 (в т.ч. откат) делает шаг красным

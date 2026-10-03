@@ -1,0 +1,31 @@
+# Пример шага деплоя для Azure Pipelines (после шага сборки и публикации образа).
+# Секретные переменные пайплайна: UPDATER_URL и UPDATER_TOKEN (Library или Pipeline variables, тип secret).
+# Секреты нужно явно передать в env шага: сами по себе они в скрипт не попадают.
+trigger:
+  branches:
+    include: [main]
+
+variables:
+  imageName: myregistry.azurecr.io/myapp:$(Build.SourceVersion)
+
+stages:
+  - stage: Deploy
+    jobs:
+      - job: Deploy
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - bash: |
+              code=$(curl -sS -o response.json -w '%{http_code}' --connect-timeout 10 --max-time 300 \
+                -X POST "$UPDATER_URL/api/v1/deploy" \
+                -H "Content-Type: application/json" \
+                -H "X-Webhook-Token: $UPDATER_TOKEN" \
+                -d "{\"image\":\"$IMAGE\"}")
+              cat response.json; echo
+              jq -r '(.results // [])[] | "\(.target)/\(.service): \(.status)"' response.json || true
+              test "$code" = 200
+            displayName: Deploy via VDS Service Updater
+            env:
+              UPDATER_URL: $(UPDATER_URL)
+              UPDATER_TOKEN: $(UPDATER_TOKEN)
+              IMAGE: $(imageName)

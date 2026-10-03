@@ -1,0 +1,22 @@
+{
+  "Updater": {
+    "Auth": { "Token": "замените-на-длинный-случайный-токен-от-16-символов" },
+    "Deploy": {
+      "AllowedImagePrefixes": [ "ghcr.io/myorg/" ],
+      "AllowLatestTag": false,
+      "WaitTimeoutSeconds": 120,
+      "StabilitySeconds": 10,
+      "RollbackOnFailure": true,
+      "BackupDirectory": "/data/backups",
+      "BackupsToKeep": 20
+    },
+    "Proxy": { "KnownProxies": [ "172.18.0.1" ], "KnownNetworks": [] },
+    "Security": { "RequestsPerMinute": 30, "MaxBodyBytes": 4096 },
+    "Targets": [
+      { "Name": "main", "Type": "Compose", "File": "/opt/stacks/main/compose.yml",
+        "StackName": "main", "Protected": [ "postgres*", "redis*", "*-db" ] },
+      { "Name": "prod", "Type": "Stack", "File": "/opt/stacks/prod/stack.yml",
+        "StackName": "prod", "ApplyMode": "ServiceUpdate", "Protected": [ "db" ] }
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+# Запуск апдейтера в Docker Swarm. Контейнер работает только на manager-ноде.
+#
+# Подготовка (один раз):
+#   docker network create --driver overlay --attachable edge
+#   printf '{"Updater":{"Auth":{"Token":"%s"}}}' "$(openssl rand -hex 32)" | docker secret create updater_secrets -
+#   docker stack deploy -c stack.example.yml updater
+#
+# Порт НЕ публикуется: swarm не умеет привязывать опубликованный порт к 127.0.0.1.
+# nginx должен быть в той же сети edge (как swarm-сервис) и ходить на http://vds-service-updater:8080.
+# Если nginx работает на хосте, опубликуйте порт в режиме host
+#   ports: [{ target: 8080, published: 8080, mode: host }]
+# и закройте 8080 файрволом снаружи.
+#
+# Сам апдейтер не должен быть целью обновления (стек "updater" в Targets не указывать).
+services:
+  vds-service-updater:
+    image: ghcr.io/myorg/vds-service-updater:1.0.0
+    networks: [edge]
+    environment:
+      Updater__Deploy__AllowedImagePrefixes__0: ghcr.io/myorg/
+      Updater__Proxy__KnownNetworks__0: 10.0.0.0/8   # подсеть overlay-сети edge: docker network inspect edge
+      Updater__Targets__0__Name: prod
+      Updater__Targets__0__Type: Stack
+      Updater__Targets__0__File: /opt/stacks/prod/stack.yml
+      Updater__Targets__0__StackName: prod
+      Updater__Targets__0__ApplyMode: ServiceUpdate
+      Updater__Targets__0__Protected__0: db
+      Updater__Targets__0__Protected__1: "redis*"
+    secrets:
+      - source: updater_secrets
+        target: /config/updater.json
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/stacks:/opt/stacks
+      - /root/.docker/config.json:/root/.docker/config.json:ro
+      - updater-data:/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: any
+      update_config:
+        order: stop-first
+
+networks:
+  edge:
+    external: true
+
+secrets:
+  updater_secrets:
+    external: true
+
+volumes:
+  updater-data:
