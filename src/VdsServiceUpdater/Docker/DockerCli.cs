@@ -34,6 +34,10 @@ public sealed class DockerCli(IProcessRunner runner)
     public Task<ProcessResult> ComposeUpAsync(TargetOptions t, IEnumerable<string> services, TimeSpan timeout, CancellationToken ct) =>
         Run(Compose(t, ["up", "-d", "--no-deps", "--no-build", .. services]), timeout, ct);
 
+    /// <summary>Удаляет только указанную ссылку и не форсирует удаление.</summary>
+    public Task<ProcessResult> ImageRemoveAsync(string image, CancellationToken ct) =>
+        Run(["image", "rm", "--", image], QueryTimeout, ct);
+
     public async Task<IReadOnlyList<ContainerState>> GetComposeContainersAsync(TargetOptions t, string service, CancellationToken ct)
     {
         var ps = await Run(Compose(t, ["ps", "-a", "-q", service]), QueryTimeout, ct);

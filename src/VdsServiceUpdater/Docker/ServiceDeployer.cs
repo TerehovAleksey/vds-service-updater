@@ -20,6 +20,14 @@ public sealed class ServiceDeployer(DockerCli docker, IOptions<UpdaterOptions> o
         return r.Success ? (true, "ok") : (false, Describe("Файл не проходит `docker compose config`", r));
     }
 
+    public async Task<(bool Success, string? Error)> RemoveImageAsync(string image, CancellationToken ct)
+    {
+        var result = await docker.ImageRemoveAsync(image, ct);
+        return result.Success
+            ? (true, null)
+            : (false, Describe("docker image rm не выполнен", result));
+    }
+
     /// <param name="images">сервис → полное значение image (как записано в файле), которое должно работать.</param>
     public async Task<IReadOnlyList<ServiceApplyResult>> ApplyAsync(
         TargetOptions target, IReadOnlyDictionary<string, string> images, TimeSpan timeout, CancellationToken ct)

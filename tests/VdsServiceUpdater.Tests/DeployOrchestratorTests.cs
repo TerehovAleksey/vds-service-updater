@@ -18,6 +18,7 @@ internal sealed class FakeCompose
     public Func<string, string> StatusFor = _ => "running";
     public Func<string, string?> HealthFor = _ => null;
     public bool InvalidConfig;
+    public ProcessResult ImageRemoveResult = FakeRunner.Ok();
     public Action? OnUp;
     public FakeRunner Runner { get; }
 
@@ -25,6 +26,7 @@ internal sealed class FakeCompose
 
     private ProcessResult Handle(IReadOnlyList<string> a)
     {
+        if (a[0] == "image" && a[1] == "rm") return ImageRemoveResult;
         if (a[0] == "inspect")
         {
             var status = StatusFor(Running);
@@ -103,6 +105,39 @@ public class DeployOrchestratorTests
         Assert.Contains("image: postgres:16", h.Yaml);
         Assert.Single(Directory.GetFiles(Path.Combine(h.BackupDir, "main")));
         Assert.Equal("ghcr.io/org/app:2.0", h.Docker.Running);
+    }
+
+    [Fact]
+    public async Task Opt_in_cleanup_removes_only_previous_image_after_success()
+    {
+        using var h = new Harness();
+        h.Options.Targets[0].CleanupOldImagesAfterSuccess = true;
+
+        var o = await h.Deploy("ghcr.io/org/app:2.0");
+
+        Assert.Equal((200, "updated"), (o.StatusCode, o.Body.Status));
+        var cleanup = Assert.Single(o.Body.Cleanup!);
+        Assert.Equal(("main", "ghcr.io/org/app:1.0", true, true, null),
+            (cleanup.Target, cleanup.Image, cleanup.Attempted, cleanup.Success, cleanup.Error));
+        var cleanupCall = Assert.Single(h.Docker.Runner.Calls, c => c.StartsWith("image rm"));
+        Assert.Equal("image rm -- ghcr.io/org/app:1.0", cleanupCall);
+        Assert.DoesNotContain("prune", cleanupCall);
+        Assert.DoesNotContain(" -f", cleanupCall);
+    }
+
+    [Fact]
+    public async Task Cleanup_failure_is_reported_without_changing_deploy_result()
+    {
+        using var h = new Harness();
+        h.Options.Targets[0].CleanupOldImagesAfterSuccess = true;
+        h.Docker.ImageRemoveResult = FakeRunner.Err("image is being used by a running container");
+
+        var o = await h.Deploy("ghcr.io/org/app:2.0");
+
+        Assert.Equal((200, "updated"), (o.StatusCode, o.Body.Status));
+        var cleanup = Assert.Single(o.Body.Cleanup!);
+        Assert.False(cleanup.Success);
+        Assert.Contains("being used", cleanup.Error);
     }
 
     [Fact]
@@ -224,6 +259,35 @@ public class DeployOrchestratorTests
         Assert.Equal("rolled_back", Assert.Single(o.Body.Results).Status);
         Assert.Equal(Harness.DefaultYaml, h.Yaml);
         Assert.Equal("ghcr.io/org/app:1.0", h.Docker.Running);
+    }
+
+    [Fact]
+    public async Task Successful_rollback_cleans_requested_image_reference()
+    {
+        using var h = new Harness();
+        h.Options.Targets[0].CleanupNewImagesAfterRollback = true;
+        h.Docker.StatusFor = img => img.EndsWith(":2.0") ? "exited" : "running";
+
+        var o = await h.Deploy("ghcr.io/org/app:2.0");
+
+        Assert.Equal((500, "deploy_failed"), (o.StatusCode, o.Body.Code));
+        Assert.Equal("rolled_back", Assert.Single(o.Body.Results).Status);
+        Assert.Equal("ghcr.io/org/app:2.0", Assert.Single(o.Body.Cleanup!).Image);
+        Assert.Contains("image rm -- ghcr.io/org/app:2.0", h.Docker.Runner.Calls);
+    }
+
+    [Fact]
+    public async Task Failed_rollback_does_not_clean_requested_image_reference()
+    {
+        using var h = new Harness();
+        h.Options.Targets[0].CleanupNewImagesAfterRollback = true;
+        h.Docker.StatusFor = _ => "exited";
+
+        var o = await h.Deploy("ghcr.io/org/app:2.0");
+
+        Assert.Equal("rollback_failed", o.Body.Code);
+        Assert.Null(o.Body.Cleanup);
+        Assert.DoesNotContain(h.Docker.Runner.Calls, c => c.StartsWith("image rm"));
     }
 
     [Fact]

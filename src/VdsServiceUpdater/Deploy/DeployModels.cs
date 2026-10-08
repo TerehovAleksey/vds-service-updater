@@ -12,6 +12,14 @@ public sealed record ServiceReport(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? NewImage,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Message);
 
+/// <summary>Результат отдельной best-effort попытки удалить ссылку на образ.</summary>
+public sealed record ImageCleanupReport(
+    string Target,
+    string Image,
+    bool Attempted,
+    bool Success,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Error);
+
 /// <summary>Тело ответа /api/v1/deploy. Status: updated | unchanged | dry_run | failed | error.</summary>
 public sealed record DeployResponse(
     string Status,
@@ -19,6 +27,7 @@ public sealed record DeployResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Message,
     IReadOnlyList<ServiceReport> Results,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Warnings,
-    long DurationMs);
+    long DurationMs,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<ImageCleanupReport>? Cleanup = null);
 
 public sealed record DeployOutcome(int StatusCode, DeployResponse Body);
