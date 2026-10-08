@@ -69,4 +69,8 @@ public sealed class TargetOptions
     public StackApplyMode ApplyMode { get; set; } = StackApplyMode.ServiceUpdate;
     /// <summary>Glob-маски имён сервисов, которые никогда не обновляются.</summary>
     public List<string> Protected { get; set; } = new();
+    /// <summary>Удалять старые ссылки образов после успешного применения.</summary>
+    public bool CleanupOldImagesAfterSuccess { get; set; }
+    /// <summary>Удалять новые ссылки образов после успешного отката.</summary>
+    public bool CleanupNewImagesAfterRollback { get; set; }
 }

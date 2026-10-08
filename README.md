@@ -6,6 +6,7 @@ Webhook service for deploying container images from CI/CD. Send an image tag to 
 
 - Docker Compose deployments and Docker Swarm service updates.
 - Dry-run requests, per-file deployment locks, backups, and automatic rollback.
+- Optional per-target cleanup of image references after successful deployment or rollback.
 - YAML edits that preserve comments, quotes, whitespace, line endings, BOM, and unrelated content.
 - Webhook token authentication, image allow-lists, request-size and rate limits, and trusted-proxy support.
 - Multi-architecture container image for `linux/amd64` and `linux/arm64`.
@@ -70,7 +71,7 @@ The complete example is [`deploy/updater.example.json`](deploy/updater.example.j
 | `Security:MaxBodyBytes` | Maximum request body (`256`–`65536` bytes; default `4096`). |
 | `Targets` | Deployment targets; at least one is required. See below. |
 
-Each target has a unique `Name` (letters, numbers, `.`, `_`, `-`; max 64 characters), `Type` (`Compose` or `Stack`), an absolute `File` path, optional `StackName`, and optional `Protected` service-name glob patterns. Protected patterns are case-insensitive. For `Stack` targets, `StackName` is required. `ApplyMode` for Swarm is `ServiceUpdate` by default; `StackDeploy` deploys the entire stack from the YAML file and is experimental.
+Each target has a unique `Name` (letters, numbers, `.`, `_`, `-`; max 64 characters), `Type` (`Compose` or `Stack`), an absolute `File` path, optional `StackName`, and optional `Protected` service-name glob patterns. Protected patterns are case-insensitive. Set `CleanupOldImagesAfterSuccess` and/or `CleanupNewImagesAfterRollback` to `true` to enable per-target best-effort cleanup (both are disabled by default). After a successful deployment the first option attempts to remove the previous image references for services changed by the request; after a successful rollback the second attempts to remove the requested/new references instead. It invokes only `docker image rm -- <exact-reference>`, without force, and never runs `docker image prune`. Docker may refuse removal when an image is still used by a container or another tag; cleanup failures are reported but do not change deployment status. In Swarm, removal applies only to the daemon configured for the updater; it does not attempt cleanup on worker nodes. For `Stack` targets, `StackName` is required. `ApplyMode` for Swarm is `ServiceUpdate` by default; `StackDeploy` deploys the entire stack from the YAML file and is experimental.
 
 Example target settings in environment variables:
 
@@ -81,6 +82,8 @@ Updater__Targets__0__File: /opt/stacks/main/compose.yml
 Updater__Targets__0__StackName: main
 Updater__Targets__0__Protected__0: postgres*
 Updater__Targets__0__Protected__1: "*-db"
+Updater__Targets__0__CleanupOldImagesAfterSuccess: true
+Updater__Targets__0__CleanupNewImagesAfterRollback: true
 ```
 
 For Compose, `StackName` sets the Compose project name (`-p`); if omitted, Docker derives it from the file's directory. For Swarm, `StackName` is the deployed stack name.
@@ -141,11 +144,19 @@ Successful response:
       "message": "Сервис защищён от обновления."
     }
   ],
+  "cleanup": [
+    {
+      "target": "main",
+      "image": "ghcr.io/myorg/app:1.4.1",
+      "attempted": true,
+      "success": true
+    }
+  ],
   "durationMs": 8123
 }
 ```
 
-Top-level `status` is `updated`, `unchanged`, `dry_run`, `failed`, or `error`. Service result statuses include `updated`, `unchanged`, `planned`, `skipped`, `failed`, `rolled_back`, and `rollback_failed`. Target read errors are reported in `warnings`; a target that cannot be read does not prevent other targets from being processed. Responses include `X-Request-Id`, which is also logged as `RequestId`.
+The optional `cleanup` array is present only when cleanup was enabled and at least one image-removal attempt occurred. Each item identifies the target and exact image reference, records whether removal was attempted/succeeded, and includes `error` on failure. Top-level `status` is `updated`, `unchanged`, `dry_run`, `failed`, or `error`. Service result statuses include `updated`, `unchanged`, `planned`, `skipped`, `failed`, `rolled_back`, and `rollback_failed`. Target read errors are reported in `warnings`; a target that cannot be read does not prevent other targets from being processed. Responses include `X-Request-Id`, which is also logged as `RequestId`.
 
 ### `GET /health`
 

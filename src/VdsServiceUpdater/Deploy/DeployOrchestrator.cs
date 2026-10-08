@@ -24,6 +24,7 @@ public sealed class DeployOrchestrator(
         var cfg = options.Value.Deploy;
         var warnings = new List<string>();
         var reports = new List<ServiceReport>();
+        var cleanup = new List<ImageCleanupReport>();
         var toExecute = new List<(TargetOptions Target, EditResult Edit)>();
         var anyMatch = false;
 
@@ -80,7 +81,7 @@ public sealed class DeployOrchestrator(
             var budget = TimeSpan.FromSeconds(cfg.WaitTimeoutSeconds);
             TimeSpan Remaining() => budget - clock.Elapsed;
             foreach (var (t, _) in toExecute)
-                reports.AddRange(await ExecuteTargetAsync(t, image, Remaining, ct));
+                reports.AddRange(await ExecuteTargetAsync(t, image, Remaining, cleanup, ct));
         }
         finally
         {
@@ -88,10 +89,11 @@ public sealed class DeployOrchestrator(
         }
 
         var (http, status, code, message) = Classify(reports, dryRun);
-        return Build(http, status, code, message, reports, warnings, clock);
+        return Build(http, status, code, message, reports, warnings, clock, cleanup);
     }
 
-    private async Task<List<ServiceReport>> ExecuteTargetAsync(TargetOptions t, ImageReference image, Func<TimeSpan> remaining, CancellationToken ct)
+    private async Task<List<ServiceReport>> ExecuteTargetAsync(TargetOptions t, ImageReference image, Func<TimeSpan> remaining,
+        List<ImageCleanupReport> cleanup, CancellationToken ct)
     {
         var cfg = options.Value.Deploy;
         string? backup = null;
@@ -129,7 +131,12 @@ public sealed class DeployOrchestrator(
             }
 
             var results = await deployer.ApplyAsync(t, newImages, remaining(), ct);
-            if (results.All(r => r.Success)) return reports;
+            if (results.All(r => r.Success))
+            {
+                if (t.CleanupOldImagesAfterSuccess)
+                    await CleanupImagesAsync(t, updated.Select(c => c.PreviousImage), cleanup, ct);
+                return reports;
+            }
 
             foreach (var r in results.Where(r => !r.Success))
                 Mark(reports, r.Service, x => x with { Status = "failed", Code = IsTimeout(r.Message) ? "timeout" : "apply_failed", Message = r.Message });
@@ -152,6 +159,8 @@ public sealed class DeployOrchestrator(
                     Message = ok ? x.Message ?? "Откатён вместе с остальными сервисами цели." : $"Откат не удался: {rr?.Message}"
                 });
             }
+            if (t.CleanupNewImagesAfterRollback && updated.All(c => rollback.TryGetValue(c.Service, out var rr) && rr.Success))
+                await CleanupImagesAsync(t, updated.Select(c => c.NewImage), cleanup, ct);
             return reports;
         }
         catch (OperationCanceledException)
@@ -173,6 +182,29 @@ public sealed class DeployOrchestrator(
     }
 
     // ---------------- helpers ----------------
+
+    private async Task CleanupImagesAsync(TargetOptions target, IEnumerable<string> images,
+        List<ImageCleanupReport> cleanup, CancellationToken ct)
+    {
+        foreach (var image in images.Distinct(StringComparer.Ordinal))
+        {
+            try
+            {
+                var (success, error) = await deployer.RemoveImageAsync(image, ct);
+                cleanup.Add(new ImageCleanupReport(target.Name, image, true, success, error));
+                if (!success)
+                    logger.LogWarning("Очистка образа {Image} в цели {Target} не выполнена: {Error}", image, target.Name, error);
+            }
+            catch (Exception ex)
+            {
+                if (ex is OperationCanceledException && ct.IsCancellationRequested)
+                    throw;
+                var error = OutputSanitizer.Prepare(ex.Message, [options.Value.Auth.Token]);
+                cleanup.Add(new ImageCleanupReport(target.Name, image, true, false, error));
+                logger.LogWarning("Очистка образа {Image} в цели {Target} не выполнена: {Error}", image, target.Name, error);
+            }
+        }
+    }
 
     private void TryRestore(string? backup, string file)
     {
@@ -236,6 +268,8 @@ public sealed class DeployOrchestrator(
     }
 
     private static DeployOutcome Build(int http, string status, string? code, string? message,
-        IReadOnlyList<ServiceReport> reports, List<string> warnings, Stopwatch clock) =>
-        new(http, new DeployResponse(status, code, message, reports, warnings.Count > 0 ? warnings : null, clock.ElapsedMilliseconds));
+        IReadOnlyList<ServiceReport> reports, List<string> warnings, Stopwatch clock,
+        IReadOnlyList<ImageCleanupReport>? cleanup = null) =>
+        new(http, new DeployResponse(status, code, message, reports, warnings.Count > 0 ? warnings : null,
+            clock.ElapsedMilliseconds, cleanup is { Count: > 0 } ? cleanup : null));
 }

@@ -100,6 +100,18 @@ public class ServiceDeployerTests
         Assert.Contains("ports", message);
     }
 
+    [Fact]
+    public async Task Image_cleanup_uses_exact_reference_without_force()
+    {
+        var runner = new FakeRunner(_ => FakeRunner.Ok());
+
+        var result = await Create(runner).RemoveImageAsync("ghcr.io/org/app:1", CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Null(result.Error);
+        Assert.Equal("image rm -- ghcr.io/org/app:1", Assert.Single(runner.Calls));
+    }
+
     // ---------- swarm: service update ----------
 
     private static FakeRunner SwarmRunner(Func<bool, string> inspectJson, Func<IReadOnlyList<string>, ProcessResult?>? extra = null)
