@@ -134,6 +134,22 @@ public class ApiIntegrationTests
         Assert.Contains("image: ghcr.io/org/app:2.0", f.Yaml);
     }
 
+    [Fact]
+    public async Task Cleanup_attempts_are_included_in_successful_api_response_when_enabled()
+    {
+        using var f = new ApiFactory(configure: settings => settings["Updater:Targets:0:CleanupOldImagesAfterSuccess"] = "true");
+
+        var r = await f.CreateClient().SendAsync(Post(Body("ghcr.io/org/app:2.0")), TestContext.Current.CancellationToken);
+        var json = await Json(r);
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var cleanup = json.GetProperty("cleanup")[0];
+        Assert.Equal("main", cleanup.GetProperty("target").GetString());
+        Assert.Equal("ghcr.io/org/app:1.0", cleanup.GetProperty("image").GetString());
+        Assert.True(cleanup.GetProperty("attempted").GetBoolean());
+        Assert.True(cleanup.GetProperty("success").GetBoolean());
+    }
+
     [Theory]
     [InlineData("ghcr.io/other/app:1", 403, "image_not_allowed")]
     [InlineData("ghcr.io/org/app:latest", 422, "latest_tag_forbidden")]
