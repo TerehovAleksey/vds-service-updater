@@ -131,6 +131,8 @@ public class ApiIntegrationTests
         Assert.Equal("app", item.GetProperty("service").GetString());
         Assert.Equal("ghcr.io/org/app:1.0", item.GetProperty("previousImage").GetString());
         Assert.Equal("ghcr.io/org/app:2.0", item.GetProperty("newImage").GetString());
+        Assert.False(json.TryGetProperty("cleanup", out _));
+        Assert.DoesNotContain(f.Docker.Runner.Calls, c => c.StartsWith("image rm"));
         Assert.Contains("image: ghcr.io/org/app:2.0", f.Yaml);
     }
 
