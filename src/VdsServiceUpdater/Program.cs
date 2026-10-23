@@ -6,13 +6,21 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Serilog;
 using Serilog.Context;
+using Serilog.Formatting.Json;
 using VdsServiceUpdater.Api;
 using VdsServiceUpdater.Images;
 using VdsServiceUpdater.Options;
 using VdsServiceUpdater.Security;
 
 // Не CreateBootstrapLogger: «замороженный» логгер ломает повторный запуск хоста (WebApplicationFactory в тестах).
-Log.Logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
+var bootstrapEnvironment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+    ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+var bootstrapLogger = new LoggerConfiguration();
+if (string.Equals(bootstrapEnvironment, "Development", StringComparison.OrdinalIgnoreCase))
+    bootstrapLogger.WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");
+else
+    bootstrapLogger.WriteTo.Console(new JsonFormatter(renderMessage: true));
+Log.Logger = bootstrapLogger.CreateLogger();
 
 try
 {
@@ -23,9 +31,24 @@ try
     builder.Configuration.AddJsonFile("/config/updater.json", optional: true, reloadOnChange: false);
     builder.Configuration.AddEnvironmentVariables();
 
-    builder.Host.UseSerilog((ctx, cfg) => cfg
-        .ReadFrom.Configuration(ctx.Configuration)
-        .Enrich.FromLogContext());
+    builder.Host.UseSerilog((ctx, cfg) =>
+    {
+        cfg.ReadFrom.Configuration(ctx.Configuration)
+            .Enrich.FromLogContext();
+
+        var consoleFormat = ctx.Configuration["Logging:ConsoleFormat"] ?? "json";
+        switch (consoleFormat.ToLowerInvariant())
+        {
+            case "json":
+                cfg.WriteTo.Console(new JsonFormatter(renderMessage: true));
+                break;
+            case "text":
+                cfg.WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");
+                break;
+            default:
+                throw new InvalidOperationException($"Unknown Console log format: {consoleFormat}.");
+        }
+    });
 
     builder.Services.AddSingleton<IValidateOptions<UpdaterOptions>, UpdaterOptionsValidator>();
     builder.Services.AddOptions<UpdaterOptions>()
@@ -74,7 +97,7 @@ try
             if (c.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
                 c.HttpContext.Response.Headers.RetryAfter = ((int)retryAfter.TotalSeconds).ToString();
             await c.HttpContext.Response.WriteAsJsonAsync(
-                ApiError.Of("rate_limited", "Слишком много запросов, повторите позже."), ct);
+                ApiError.Of("rate_limited", "Too many requests. Try again later."), ct);
         };
     });
 
@@ -95,7 +118,7 @@ try
         if (ctx.Request.Path.StartsWithSegments("/api") && ctx.Request.ContentLength > opts.Security.MaxBodyBytes)
         {
             ctx.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
-            await ctx.Response.WriteAsJsonAsync(ApiError.Of("payload_too_large", "Тело запроса слишком большое."));
+            await ctx.Response.WriteAsJsonAsync(ApiError.Of("payload_too_large", "The request body is too large."));
             return;
         }
         await next();
@@ -103,8 +126,8 @@ try
     app.UseMiddleware<TokenAuthMiddleware>();
 
     if (string.IsNullOrEmpty(opts.Auth.Token))
-        app.Logger.LogWarning("Updater:Auth:Token не задан: эндпоинт деплоя НЕ защищён. Не выставляйте сервис наружу без токена.");
-    app.Logger.LogInformation("Целей: {Targets}, разрешённые префиксы образов: {Prefixes}",
+        app.Logger.LogWarning("Updater:Auth:Token is not set: the deploy endpoint is NOT protected. Do not expose the service without a token.");
+    app.Logger.LogInformation("Targets: {Targets}, allowed image prefixes: {Prefixes}",
         opts.Targets.Select(t => $"{t.Name}({t.Type})"), opts.Deploy.AllowedImagePrefixes);
 
     var version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "dev";
@@ -119,13 +142,13 @@ try
         var check = validator.Validate(req.Image);
         if (check.Image is null)
         {
-            log.LogWarning("Образ отклонён: {Code} ({Image})", check.Code, LogSanitizer.Sanitize(req.Image));
+            log.LogWarning("Image rejected: {Code} ({Image})", check.Code, LogSanitizer.Sanitize(req.Image));
             return Results.Json(ApiError.Of(check.Code!, check.Message!), statusCode: check.StatusCode);
         }
 
-        log.LogInformation("Запрос на деплой принят: {Image}, dryRun={DryRun}", check.Image.Full, req.DryRun);
+        log.LogInformation("Deployment request accepted: {Image}, dryRun={DryRun}", check.Image.Full, req.DryRun);
         var outcome = await orchestrator.DeployAsync(check.Image, req.DryRun, lifetime.ApplicationStopping);
-        log.LogInformation("Деплой {Image} завершён: HTTP {Status}, {Result} ({Code}), {Duration} мс",
+        log.LogInformation("Deployment {Image} completed: HTTP {Status}, {Result} ({Code}), {Duration} ms",
             check.Image.Full, outcome.StatusCode, outcome.Body.Status, outcome.Body.Code, outcome.Body.DurationMs);
         return Results.Json(outcome.Body, statusCode: outcome.StatusCode);
     });
@@ -134,7 +157,7 @@ try
 }
 catch (Exception ex) when (ex is not HostAbortedException)
 {
-    Log.Fatal(ex, "Приложение не удалось запустить");
+    Log.Fatal(ex, "Application failed to start");
     return 1;
 }
 finally
