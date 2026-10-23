@@ -18,7 +18,7 @@ public sealed class ComposeFileStore(IOptions<UpdaterOptions> options)
         byte[] bytes;
         try { bytes = File.ReadAllBytes(path); }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-        { throw new ComposeFileException("file_not_found", $"Файл не найден: {path}"); }
+        { throw new ComposeFileException("file_not_found", $"File not found: {path}"); }
 
         var hasBom = bytes.AsSpan().StartsWith(Bom);
         var text = new UTF8Encoding(false).GetString(bytes, hasBom ? 3 : 0, bytes.Length - (hasBom ? 3 : 0));
@@ -47,7 +47,7 @@ public sealed class ComposeFileStore(IOptions<UpdaterOptions> options)
     {
         var current = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
         if (!string.Equals(current, expectedSha256, StringComparison.OrdinalIgnoreCase))
-            throw new ComposeFileException("file_changed", $"Файл {path} изменился во время деплоя, запись отменена.");
+            throw new ComposeFileException("file_changed", $"File {path} changed during deployment; write was cancelled.");
 
         var body = new UTF8Encoding(false).GetBytes(text);
         WriteBytesAtomic(path, hasBom ? [.. Bom, .. body] : body);

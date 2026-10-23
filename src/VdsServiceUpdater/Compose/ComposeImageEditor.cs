@@ -17,7 +17,7 @@ public static class ComposeImageEditor
 
     public static EditResult Apply(string yaml, ImageReference target, IReadOnlyCollection<string> protectedPatterns)
     {
-        if (target.Tag is null) throw new ArgumentException("У целевого образа должен быть тег.", nameof(target));
+        if (target.Tag is null) throw new ArgumentException("The target image must have a tag.", nameof(target));
 
         var before = ComposeFileScanner.Scan(yaml);
         var lines = Regex.Split(yaml, "(?<=\n)").ToList(); // строки вместе с переводом строки
@@ -62,8 +62,8 @@ public static class ComposeImageEditor
     {
         var index = s.Line - 1;
         var unsupported = new ComposeFileException("unsupported_format",
-            $"Сервис '{s.Service}': строка image: (строка {s.Line}) имеет формат, который нельзя безопасно изменить " +
-            "(якорь/алиас, flow-стиль, многострочное значение). Отредактируйте файл вручную.");
+            $"Service '{s.Service}': image: line (line {s.Line}) uses a format that cannot be safely edited " +
+            "(anchor/alias, flow style, or multiline value). Edit the file manually.");
 
         if (index < 0 || index >= lines.Count) throw unsupported;
 
@@ -87,19 +87,19 @@ public static class ComposeImageEditor
     {
         IReadOnlyList<ServiceImage> after;
         try { after = ComposeFileScanner.Scan(content); }
-        catch (ComposeFileException ex) { throw Fail($"результат не разбирается как compose-файл ({ex.Message})"); }
+        catch (ComposeFileException ex) { throw Fail($"edited content cannot be parsed as a Compose file ({ex.Message})"); }
 
-        if (after.Count != before.Count) throw Fail("изменилось число сервисов с image:");
+        if (after.Count != before.Count) throw Fail("the number of services with an image changed");
         var actual = after.ToDictionary(x => x.Service, x => x.RawValue);
 
         foreach (var b in before)
         {
             var want = expected.TryGetValue(b.Service, out var e) ? e : b.RawValue;
             if (!actual.TryGetValue(b.Service, out var got) || got != want)
-                throw Fail($"сервис '{b.Service}': ожидалось '{want}', получено '{got}' (возможно, общий якорь YAML)");
+                throw Fail($"service '{b.Service}': expected '{want}', got '{got}' (possibly due to a shared YAML anchor)");
         }
     }
 
     private static ComposeFileException Fail(string reason) =>
-        new("verification_failed", $"Проверка после правки не прошла: {reason}. Файл не изменён.");
+        new("verification_failed", $"Post-edit verification failed: {reason}. The file was not changed.");
 }

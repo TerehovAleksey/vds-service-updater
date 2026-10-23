@@ -45,11 +45,11 @@ public class UpdaterOptionsValidatorTests
             ["bad proxy ip"] = (o => o.Proxy.KnownProxies.Add("not-an-ip"), "KnownProxies"),
             ["bad network"] = (o => o.Proxy.KnownNetworks.Add("10.0.0.0/99"), "KnownNetworks"),
             ["relative backup dir"] = (o => o.Deploy.BackupDirectory = "backups", "BackupDirectory"),
-            ["duplicate name"] = (o => o.Targets.Add(new TargetOptions { Name = "MAIN", File = "/opt/other.yml" }), "повторяется"),
-            ["duplicate file"] = (o => o.Targets.Add(new TargetOptions { Name = "other", File = "/opt/stacks/main/compose.yml" }), "нескольких целях"),
-            ["relative file"] = (o => o.Targets[0].File = "compose.yml", "абсолютным"),
+            ["duplicate name"] = (o => o.Targets.Add(new TargetOptions { Name = "MAIN", File = "/opt/other.yml" }), "duplicated"),
+            ["duplicate file"] = (o => o.Targets.Add(new TargetOptions { Name = "other", File = "/opt/stacks/main/compose.yml" }), "multiple targets"),
+            ["relative file"] = (o => o.Targets[0].File = "compose.yml", "absolute path"),
             ["stack without name"] = (o => o.Targets[0].Type = TargetType.Stack, "StackName"),
-            ["path traversal in name"] = (o => o.Targets[0].Name = "../x", "Name допускает"),
+            ["path traversal in name"] = (o => o.Targets[0].Name = "../x", "Name may contain"),
             ["blank protected mask"] = (o => o.Targets[0].Protected.Add(""), "Protected"),
         };
 
@@ -58,7 +58,7 @@ public class UpdaterOptionsValidatorTests
             var o = Valid();
             breakIt(o);
             var failure = Failure(o);
-            Assert.True(failure is not null && failure.Contains(expected), $"{name}: ожидалась ошибка с '{expected}', получено: {failure ?? "успех"}");
+            Assert.True(failure is not null && failure.Contains(expected), $"{name}: expected an error containing '{expected}', got: {failure ?? "success"}");
         }
     }
 }

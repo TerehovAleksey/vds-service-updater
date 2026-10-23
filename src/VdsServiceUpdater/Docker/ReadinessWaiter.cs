@@ -17,7 +17,7 @@ public static class ReadinessWaiter
         var clock = Stopwatch.StartNew();
         TimeSpan? stableFrom = null;
         var restarts = new Dictionary<string, int>();
-        var last = "контейнеры сервиса не найдены";
+        var last = "no service containers found";
 
         while (true)
         {
@@ -25,16 +25,16 @@ public static class ReadinessWaiter
             if (states.Count == 0)
             {
                 stableFrom = null;
-                last = "контейнеры сервиса не найдены";
+                last = "no service containers found";
             }
             else
             {
                 var dead = states.FirstOrDefault(s => s.Status is "exited" or "dead");
                 if (dead is not null)
-                    return new(false, $"Контейнер {Short(dead.Id)} остановился (состояние {dead.Status}, код выхода {dead.ExitCode}).");
+                    return new(false, $"Container {Short(dead.Id)} stopped (state {dead.Status}, exit code {dead.ExitCode}).");
                 var unhealthy = states.FirstOrDefault(s => s.Health == "unhealthy");
                 if (unhealthy is not null)
-                    return new(false, $"Контейнер {Short(unhealthy.Id)} не прошёл healthcheck (unhealthy).");
+                    return new(false, $"Container {Short(unhealthy.Id)} failed its health check (unhealthy).");
 
                 var restarted = false;
                 foreach (var s in states)
@@ -47,29 +47,29 @@ public static class ReadinessWaiter
                 if (wrong is not null)
                 {
                     stableFrom = null;
-                    last = $"контейнер использует образ '{wrong.Image}', ожидался '{expectedImage}'";
+                    last = $"container is using image '{wrong.Image}', expected '{expectedImage}'";
                 }
                 else if (restarted || states.Any(s => s.Status == "restarting"))
                 {
                     stableFrom = null;
-                    last = "контейнер перезапускается (возможно, падает при старте)";
+                    last = "container is restarting (it may be crashing during startup)";
                 }
                 else if (states.All(s => s.Status == "running" && (s.Health is null or "healthy")))
                 {
                     stableFrom ??= clock.Elapsed;
                     var needStability = states.Any(s => s.Health is null);
                     if (!needStability || clock.Elapsed - stableFrom >= stability)
-                        return new(true, "Сервис запущен.");
-                    last = "ждём стабильной работы контейнера";
+                        return new(true, "Service is running.");
+                    last = "waiting for the container to remain stable";
                 }
                 else
                 {
                     stableFrom = null;
-                    last = "контейнер ещё не готов: " + string.Join(", ", states.Select(s => $"{s.Status}/{s.Health ?? "-"}"));
+                    last = "container is not ready yet: " + string.Join(", ", states.Select(s => $"{s.Status}/{s.Health ?? "-"}"));
                 }
             }
 
-            if (clock.Elapsed >= timeout) return new(false, $"Таймаут ожидания готовности: {last}.");
+            if (clock.Elapsed >= timeout) return new(false, $"Timed out waiting for readiness: {last}.");
             await Task.Delay(poll, ct);
         }
     }
@@ -83,28 +83,28 @@ public static class ReadinessWaiter
         string? previousStartedAt, TimeSpan timeout, TimeSpan poll, CancellationToken ct)
     {
         var clock = Stopwatch.StartNew();
-        var last = "обновление ещё не началось";
+        var last = "update has not started";
 
         while (true)
         {
             var info = await inspect(ct);
-            if (info is null) return new(false, "Сервис исчез из swarm во время обновления.");
+            if (info is null) return new(false, "Service disappeared from Swarm during the update.");
 
             if (info.UpdateState is { } state && info.UpdateStartedAt != previousStartedAt)
             {
                 switch (state)
                 {
                     case "completed":
-                        return new(true, "Обновление завершено.");
+                        return new(true, "Update completed.");
                     case "paused" or "rollback_completed" or "rollback_paused":
-                        return new(false, $"Обновление не удалось (состояние {state}): {info.UpdateMessage}");
+                        return new(false, $"Update failed (state {state}): {info.UpdateMessage}");
                     default:
-                        last = $"состояние обновления: {state}";
+                        last = $"update state: {state}";
                         break;
                 }
             }
 
-            if (clock.Elapsed >= timeout) return new(false, $"Таймаут ожидания обновления: {last}.");
+            if (clock.Elapsed >= timeout) return new(false, $"Timed out waiting for the update: {last}.");
             await Task.Delay(poll, ct);
         }
     }

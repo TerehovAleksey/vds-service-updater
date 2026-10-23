@@ -33,7 +33,7 @@ public class ReadinessWaiterTests
     {
         var r = await Wait(Seq([DockerTestData.C("exited")]), timeout: TimeSpan.FromSeconds(30));
         Assert.False(r.Success);
-        Assert.Contains("остановился", r.Message);
+        Assert.Contains("stopped", r.Message);
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public class ReadinessWaiterTests
     {
         var r = await Wait(Seq([DockerTestData.C("running", "unhealthy")]), timeout: TimeSpan.FromSeconds(30));
         Assert.False(r.Success);
-        Assert.Contains("healthcheck", r.Message);
+        Assert.Contains("health check", r.Message);
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class ReadinessWaiterTests
     {
         var r = await Wait(Seq([DockerTestData.C("running", image: "app:1")]));
         Assert.False(r.Success);
-        Assert.Contains("Таймаут", r.Message);
+        Assert.Contains("Timed out", r.Message);
         Assert.Contains("app:1", r.Message);
     }
 
@@ -65,7 +65,7 @@ public class ReadinessWaiterTests
     {
         var r = await Wait(Seq(Array.Empty<ContainerState>()));
         Assert.False(r.Success);
-        Assert.Contains("не найдены", r.Message);
+        Assert.Contains("no service containers found", r.Message);
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class ReadinessWaiterTests
             _ => Task.FromResult<IReadOnlyList<ContainerState>>([DockerTestData.C("running", restarts: n++)]);
         var r = await Wait(f, stability: TimeSpan.FromMilliseconds(40));
         Assert.False(r.Success);
-        Assert.Contains("перезапускается", r.Message);
+        Assert.Contains("restarting", r.Message);
     }
 
     // ---- swarm ----
@@ -105,7 +105,7 @@ public class ReadinessWaiterTests
     {
         var r = await WaitSwarm(SvcSeq(new ServiceInfo("app:2", "completed", "T1", null)));
         Assert.False(r.Success);
-        Assert.Contains("Таймаут", r.Message);
+        Assert.Contains("Timed out", r.Message);
     }
 
     [Theory]

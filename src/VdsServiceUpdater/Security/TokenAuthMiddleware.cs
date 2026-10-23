@@ -39,8 +39,8 @@ public sealed class TokenAuthMiddleware
             return;
         }
 
-        _logger.LogWarning("Запрос отклонён: неверный или отсутствующий токен (IP {RemoteIp})", context.Connection.RemoteIpAddress);
+        _logger.LogWarning("Request rejected: invalid or missing token (IP {RemoteIp})", context.Connection.RemoteIpAddress);
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await context.Response.WriteAsJsonAsync(ApiError.Of("unauthorized", "Неверный или отсутствующий X-Webhook-Token."));
+        await context.Response.WriteAsJsonAsync(ApiError.Of("unauthorized", "The X-Webhook-Token is invalid or missing."));
     }
 }

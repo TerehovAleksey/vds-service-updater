@@ -41,13 +41,13 @@ public sealed class DockerCli(IProcessRunner runner)
     public async Task<IReadOnlyList<ContainerState>> GetComposeContainersAsync(TargetOptions t, string service, CancellationToken ct)
     {
         var ps = await Run(Compose(t, ["ps", "-a", "-q", service]), QueryTimeout, ct);
-        if (!ps.Success) throw new DockerCommandException($"docker compose ps завершился с кодом {ps.ExitCode}: {OutputSanitizer.Tail(ps.StdErr.Trim(), 300)}");
+        if (!ps.Success) throw new DockerCommandException($"docker compose ps exited with code {ps.ExitCode}: {OutputSanitizer.Tail(ps.StdErr.Trim(), 300)}");
 
         var ids = ps.StdOut.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (ids.Length == 0) return [];
 
         var inspect = await Run(["inspect", .. ids], QueryTimeout, ct);
-        if (!inspect.Success) throw new DockerCommandException($"docker inspect завершился с кодом {inspect.ExitCode}: {OutputSanitizer.Tail(inspect.StdErr.Trim(), 300)}");
+        if (!inspect.Success) throw new DockerCommandException($"docker inspect exited with code {inspect.ExitCode}: {OutputSanitizer.Tail(inspect.StdErr.Trim(), 300)}");
         return DockerJson.ParseContainers(inspect.StdOut);
     }
 
@@ -59,7 +59,7 @@ public sealed class DockerCli(IProcessRunner runner)
         var r = await Run(["service", "inspect", "--format", "{{json .}}", name], QueryTimeout, ct);
         if (r.Success) return DockerJson.ParseService(r.StdOut);
         if (r.StdErr.Contains("no such service", StringComparison.OrdinalIgnoreCase)) return null;
-        throw new DockerCommandException($"docker service inspect завершился с кодом {r.ExitCode}: {OutputSanitizer.Tail(r.StdErr.Trim(), 300)}");
+        throw new DockerCommandException($"docker service inspect exited with code {r.ExitCode}: {OutputSanitizer.Tail(r.StdErr.Trim(), 300)}");
     }
 
     /// <summary>Откат при сбое делает сам swarm (--update-failure-action rollback); --detach: ждём сами через inspect.</summary>

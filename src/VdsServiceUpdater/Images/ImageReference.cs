@@ -40,10 +40,10 @@ public sealed record ImageReference(string Registry, string Path, string? Tag, s
         result = null;
         error = null;
 
-        if (string.IsNullOrWhiteSpace(value)) return Fail("Образ не указан.", out error);
-        if (value.Length > 255) return Fail("Образ длиннее 255 символов.", out error);
+        if (string.IsNullOrWhiteSpace(value)) return Fail("Image is required.", out error);
+        if (value.Length > 255) return Fail("Image exceeds 255 characters.", out error);
         if (value.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
-            return Fail("Образ содержит пробелы или управляющие символы.", out error);
+            return Fail("Image contains whitespace or control characters.", out error);
 
         var rest = value;
 
@@ -53,7 +53,7 @@ public sealed record ImageReference(string Registry, string Path, string? Tag, s
         {
             digest = rest[(at + 1)..];
             rest = rest[..at];
-            if (!IsMatch(DigestRegex, digest)) return Fail("Некорректный digest (ожидается sha256:<64 hex>).", out error);
+            if (!IsMatch(DigestRegex, digest)) return Fail("Invalid digest (expected sha256:<64 hex>).", out error);
         }
 
         string? tag = null;
@@ -62,10 +62,10 @@ public sealed record ImageReference(string Registry, string Path, string? Tag, s
         {
             tag = rest[(colon + 1)..];
             rest = rest[..colon];
-            if (!IsMatch(TagRegex, tag)) return Fail("Некорректный тег.", out error);
+            if (!IsMatch(TagRegex, tag)) return Fail("Invalid tag.", out error);
         }
 
-        if (rest.Length == 0) return Fail("Не указано имя образа.", out error);
+        if (rest.Length == 0) return Fail("Image name is required.", out error);
 
         var parts = rest.Split('/');
         string registry;
@@ -74,7 +74,7 @@ public sealed record ImageReference(string Registry, string Path, string? Tag, s
         {
             registry = NormalizeRegistry(parts[0]);
             pathParts = parts[1..];
-            if (!IsMatch(RegistryRegex, registry)) return Fail("Некорректный адрес реестра.", out error);
+            if (!IsMatch(RegistryRegex, registry)) return Fail("Invalid registry address.", out error);
         }
         else
         {
@@ -83,7 +83,7 @@ public sealed record ImageReference(string Registry, string Path, string? Tag, s
         }
 
         if (pathParts.Any(p => !IsMatch(PathPartRegex, p)))
-            return Fail("Некорректное имя репозитория (допустимы строчные a-z, 0-9, '.', '_', '-').", out error);
+            return Fail("Invalid repository name (lowercase a-z, 0-9, '.', '_', and '-' are allowed).", out error);
 
         if (registry == DockerHub && pathParts.Length == 1)
             pathParts = ["library", pathParts[0]];

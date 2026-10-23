@@ -40,8 +40,8 @@ public sealed class DeployOrchestrator(
             catch (ComposeFileException ex)
             {
                 // Нечитаемая цель не должна ломать деплой в остальные.
-                logger.LogWarning("Цель {Target} пропущена: {Reason}", t.Name, ex.Message);
-                warnings.Add($"Цель '{t.Name}' пропущена: {ex.Message}");
+                logger.LogWarning("Skipping target {Target}: {Reason}", t.Name, ex.Message);
+                warnings.Add($"Target '{t.Name}' was skipped: {ex.Message}");
                 continue;
             }
 
@@ -62,7 +62,7 @@ public sealed class DeployOrchestrator(
 
         if (!anyMatch)
             return Build(404, "error", "service_not_found",
-                "Не найдено сервисов с этим образом в настроенных целях.", reports, warnings, clock);
+                "No services using this image were found in the configured targets.", reports, warnings, clock);
 
         // ---- 2. блокировки ----
         var held = new List<IDisposable>();
@@ -73,7 +73,7 @@ public sealed class DeployOrchestrator(
                 var l = locks.TryAcquire(t.File);
                 if (l is null)
                     return Build(409, "error", "deploy_in_progress",
-                        $"В цель '{t.Name}' уже идёт другой деплой.", [], warnings, clock);
+                        $"Another deployment is already in progress for target '{t.Name}'.", [], warnings, clock);
                 held.Add(l);
             }
 
@@ -113,7 +113,7 @@ public sealed class DeployOrchestrator(
 
             backup = store.Backup(t.Name, t.File);
             store.WriteAtomic(t.File, edit.Content, snap.HasBom, snap.Sha256);
-            logger.LogInformation("Файл {File} обновлён, бэкап: {Backup}", t.File, backup);
+            logger.LogInformation("Updated file {File}; backup: {Backup}", t.File, backup);
 
             var (valid, validationMessage) = await deployer.ValidateFileAsync(t, ct);
             if (!valid)
@@ -126,7 +126,7 @@ public sealed class DeployOrchestrator(
             if (remaining() <= TimeSpan.Zero)
             {
                 store.Restore(backup, t.File);
-                FailAll(reports, updated, "timeout", "Истекло время, отведённое на деплой.", "failed");
+                FailAll(reports, updated, "timeout", "The deployment time limit has expired.", "failed");
                 return reports;
             }
 
@@ -144,7 +144,7 @@ public sealed class DeployOrchestrator(
             if (!cfg.RollbackOnFailure) return reports;
 
             // ---- 4. откат: файл + прежние образы ----
-            logger.LogWarning("Деплой в {Target} не удался, откат к прежним образам", t.Name);
+            logger.LogWarning("Deployment to {Target} failed; rolling back to the previous images", t.Name);
             store.Restore(backup, t.File);
             var rollback = (await deployer.ApplyAsync(t, oldImages, TimeSpan.FromSeconds(cfg.WaitTimeoutSeconds), ct))
                 .ToDictionary(r => r.Service);
@@ -152,11 +152,11 @@ public sealed class DeployOrchestrator(
             foreach (var c in updated)
             {
                 var ok = rollback.TryGetValue(c.Service, out var rr) && rr.Success;
-                if (!ok) logger.LogError("Откат сервиса {Target}/{Service} НЕ удался: {Message}", t.Name, c.Service, rr?.Message);
+                if (!ok) logger.LogError("Rollback failed for service {Target}/{Service}: {Message}", t.Name, c.Service, rr?.Message);
                 Mark(reports, c.Service, x => x with
                 {
                     Status = ok ? "rolled_back" : "rollback_failed",
-                    Message = ok ? x.Message ?? "Откатён вместе с остальными сервисами цели." : $"Откат не удался: {rr?.Message}"
+                    Message = ok ? x.Message ?? "Rolled back with the other services in the target." : $"Rollback failed: {rr?.Message}"
                 });
             }
             if (t.CleanupNewImagesAfterRollback && updated.All(c => rollback.TryGetValue(c.Service, out var rr) && rr.Success))
@@ -175,7 +175,7 @@ public sealed class DeployOrchestrator(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Непредвиденная ошибка при деплое в {Target}", t.Name);
+            logger.LogError(ex, "Unexpected error deploying to {Target}", t.Name);
             TryRestore(backup, t.File);
             return [new ServiceReport(t.Name, "*", "failed", "internal_error", null, null, ex.Message)];
         }
@@ -193,7 +193,7 @@ public sealed class DeployOrchestrator(
                 var (success, error) = await deployer.RemoveImageAsync(image, ct);
                 cleanup.Add(new ImageCleanupReport(target.Name, image, true, success, error));
                 if (!success)
-                    logger.LogWarning("Очистка образа {Image} в цели {Target} не выполнена: {Error}", image, target.Name, error);
+                    logger.LogWarning("Failed to remove image {Image} from target {Target}: {Error}", image, target.Name, error);
             }
             catch (Exception ex)
             {
@@ -201,7 +201,7 @@ public sealed class DeployOrchestrator(
                     throw;
                 var error = OutputSanitizer.Prepare(ex.Message, [options.Value.Auth.Token]);
                 cleanup.Add(new ImageCleanupReport(target.Name, image, true, false, error));
-                logger.LogWarning("Очистка образа {Image} в цели {Target} не выполнена: {Error}", image, target.Name, error);
+                logger.LogWarning("Failed to remove image {Image} from target {Target}: {Error}", image, target.Name, error);
             }
         }
     }
@@ -210,7 +210,7 @@ public sealed class DeployOrchestrator(
     {
         if (backup is null) return;
         try { store.Restore(backup, file); }
-        catch (Exception ex) { logger.LogError(ex, "Не удалось восстановить {File} из {Backup}. Восстановите вручную.", file, backup); }
+        catch (Exception ex) { logger.LogError(ex, "Failed to restore {File} from {Backup}. Restore it manually.", file, backup); }
     }
 
     private static List<ServiceReport> ToReports(TargetOptions t, EditResult edit, bool planned) =>
@@ -218,9 +218,9 @@ public sealed class DeployOrchestrator(
         {
             ServiceOutcome.Updated => new ServiceReport(t.Name, c.Service, planned ? "planned" : "updated", null, c.PreviousImage, c.NewImage, null),
             ServiceOutcome.Unchanged => new ServiceReport(t.Name, c.Service, "unchanged", null, c.PreviousImage, c.NewImage, null),
-            ServiceOutcome.SkippedProtected => new ServiceReport(t.Name, c.Service, "skipped", "protected", c.PreviousImage, null, "Сервис защищён от обновления."),
-            ServiceOutcome.SkippedVariable => new ServiceReport(t.Name, c.Service, "skipped", "image_uses_variable", c.PreviousImage, null, "image: использует переменную, автоматическое обновление невозможно."),
-            _ => new ServiceReport(t.Name, c.Service, "skipped", "pinned_by_digest", c.PreviousImage, null, "Образ закреплён по digest.")
+            ServiceOutcome.SkippedProtected => new ServiceReport(t.Name, c.Service, "skipped", "protected", c.PreviousImage, null, "Service is protected from updates."),
+            ServiceOutcome.SkippedVariable => new ServiceReport(t.Name, c.Service, "skipped", "image_uses_variable", c.PreviousImage, null, "image: uses a variable and cannot be updated automatically."),
+            _ => new ServiceReport(t.Name, c.Service, "skipped", "pinned_by_digest", c.PreviousImage, null, "Image is pinned by digest.")
         }).ToList();
 
     private static void FailAll(List<ServiceReport> reports, IEnumerable<ServiceChange> updated, string code, string message, string status)
@@ -236,8 +236,8 @@ public sealed class DeployOrchestrator(
     }
 
     private static bool IsTimeout(string message) =>
-        message.Contains("таймаут", StringComparison.OrdinalIgnoreCase) ||
-        message.Contains("истекло время", StringComparison.OrdinalIgnoreCase);
+        message.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("time limit has expired", StringComparison.OrdinalIgnoreCase);
 
     private static (int Http, string Status, string? Code, string? Message) Classify(IReadOnlyList<ServiceReport> reports, bool dryRun)
     {
@@ -246,7 +246,7 @@ public sealed class DeployOrchestrator(
         {
             var message = failed.Select(r => r.Message).FirstOrDefault(m => !string.IsNullOrEmpty(m));
             if (failed.Any(r => r.Status == "rollback_failed"))
-                return (500, "failed", "rollback_failed", "Деплой не удался, а откат завершился ошибкой: требуется ручное вмешательство. " + message);
+                return (500, "failed", "rollback_failed", "Deployment failed and rollback also failed; manual intervention is required. " + message);
             if (failed.All(r => r.Code == "unsupported_format"))
                 return (422, "failed", "unsupported_format", message);
             if (failed.Any(r => r.Code == "timeout"))
@@ -257,10 +257,10 @@ public sealed class DeployOrchestrator(
         if (!reports.Any(r => r.Status is "updated" or "unchanged" or "planned"))
         {
             if (reports.Any(r => r.Code == "image_uses_variable"))
-                return (422, "error", "image_uses_variable", "image: использует переменную окружения, автоматическое обновление невозможно.");
+                return (422, "error", "image_uses_variable", "image: uses an environment variable and cannot be updated automatically.");
             if (reports.Any(r => r.Code == "pinned_by_digest"))
-                return (422, "error", "pinned_by_digest", "Образ закреплён по digest, автоматическое обновление невозможно.");
-            return (403, "error", "service_protected", "Все подходящие сервисы защищены от обновления.");
+                return (422, "error", "pinned_by_digest", "Image is pinned by digest and cannot be updated automatically.");
+            return (403, "error", "service_protected", "All matching services are protected from updates.");
         }
 
         var status = dryRun ? "dry_run" : reports.Any(r => r.Status == "updated") ? "updated" : "unchanged";
