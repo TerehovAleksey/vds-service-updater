@@ -65,7 +65,7 @@ public class ServiceDeployerTests
         });
         var r = Assert.Single(await Create(runner).ApplyAsync(Compose(), Img(), Timeout, CancellationToken.None));
         Assert.False(r.Success);
-        Assert.Contains("остановился", r.Message);
+        Assert.Contains("stopped", r.Message);
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public class ServiceDeployerTests
         });
         var r = Assert.Single(await Create(runner).ApplyAsync(Compose(), Img(), TimeSpan.FromMilliseconds(200), CancellationToken.None));
         Assert.False(r.Success);
-        Assert.Contains("Таймаут", r.Message);
+        Assert.Contains("Timed out", r.Message);
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public class ServiceDeployerTests
         var r = Assert.Single(await Create(runner).ApplyAsync(Stack(), Img(), Timeout, CancellationToken.None));
 
         Assert.False(r.Success);
-        Assert.Contains("не найден", r.Message);
+        Assert.Contains("was not found", r.Message);
     }
 
     [Fact]

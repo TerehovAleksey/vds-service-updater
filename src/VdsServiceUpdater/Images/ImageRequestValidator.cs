@@ -20,15 +20,15 @@ public sealed class ImageRequestValidator
     public ImageValidationResult Validate(string? image)
     {
         if (!ImageReference.TryParse(image, out var r, out var error) || r is null)
-            return Reject(422, "invalid_image", error ?? "Некорректный образ.");
+            return Reject(422, "invalid_image", error ?? "Invalid image.");
         if (r.Tag is null)
-            return Reject(422, "tag_required", "Укажите тег образа (например app:1.4.2).");
+            return Reject(422, "tag_required", "Specify an image tag (for example, app:1.4.2).");
         if (r.Digest is not null)
-            return Reject(422, "digest_not_supported", "Образы с @digest не поддерживаются, используйте тег.");
+            return Reject(422, "digest_not_supported", "Images with @digest are not supported; use a tag.");
         if (!IsAllowed(r.Repository))
-            return Reject(403, "image_not_allowed", "Образ не входит в список разрешённых префиксов.");
+            return Reject(403, "image_not_allowed", "Image is not in the list of allowed prefixes.");
         if (!_allowLatest && r.Tag.Equals("latest", StringComparison.OrdinalIgnoreCase))
-            return Reject(422, "latest_tag_forbidden", "Тег latest запрещён конфигурацией.");
+            return Reject(422, "latest_tag_forbidden", "The latest tag is forbidden by configuration.");
         return new ImageValidationResult(r);
     }
 

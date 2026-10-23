@@ -53,6 +53,21 @@ Webhook service for deploying container images from CI/CD. Send an image tag to 
 
 Configuration is read from `appsettings.json`, optional `/config/updater.json`, then environment variables; later sources override earlier ones. Use `__` for nested environment-variable keys, for example `Updater__Auth__Token`. Invalid settings fail startup. Do not split the same indexed list (such as `Targets`) across sources: entries are merged by index.
 
+### Logging
+
+The application uses Serilog and writes logs to standard output. The default minimum level is `Information`; `Microsoft.AspNetCore` logs are limited to `Warning`.
+
+Production uses one-line JSON output by default. Each event includes a `Level` field (for example, `Information` or `Warning`), `Timestamp`, `MessageTemplate`, `RenderedMessage`, and structured `Properties`. Request logs include fields such as `RequestMethod`, `RequestPath`, `StatusCode`, `Elapsed`, and `RequestId`, which can be parsed by Alloy and queried in Loki.
+
+Development uses the readable text format `[HH:mm:ss INF] message`. The output format is selected by `Logging:ConsoleFormat`:
+
+| Value | Output |
+|---|---|
+| `json` | Structured JSON; default when not specified |
+| `text` | Human-readable text |
+
+Set `Logging__ConsoleFormat` to `json` or `text` to override the format through an environment variable. The optional `/config/updater.json` can also set `Logging:ConsoleFormat`; environment variables take precedence. `appsettings.Development.json` selects `text` for the Development environment.
+
 The complete example is [`deploy/updater.example.json`](deploy/updater.example.json). Settings are under the `Updater` section:
 
 | Setting | Purpose |

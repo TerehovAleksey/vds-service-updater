@@ -16,18 +16,18 @@ public static class ComposeFileScanner
         }
         catch (Exception ex)
         {
-            throw new ComposeFileException("invalid_yaml", $"Файл не является корректным YAML: {ex.Message}");
+            throw new ComposeFileException("invalid_yaml", $"File is not valid YAML: {ex.Message}");
         }
 
         if (stream.Documents.Count == 0)
-            throw new ComposeFileException("no_services", "Файл пуст или в нём нет секции services.");
+            throw new ComposeFileException("no_services", "File is empty or does not contain a services section.");
         if (stream.Documents.Count > 1)
-            throw new ComposeFileException("unsupported_format", "Ожидается ровно один YAML-документ.");
+            throw new ComposeFileException("unsupported_format", "Exactly one YAML document is required.");
 
         if (stream.Documents[0].RootNode is not YamlMappingNode root ||
             !TryGet(root, "services", out var servicesNode) ||
             servicesNode is not YamlMappingNode services)
-            throw new ComposeFileException("no_services", "В файле нет секции services.");
+            throw new ComposeFileException("no_services", "File does not contain a services section.");
 
         var result = new List<ServiceImage>();
         foreach (var kv in services.Children)

@@ -22,6 +22,7 @@ VDS Service Updater is an ASP.NET Core webhook service that updates container im
 
 ## Important constraints
 
+- All log entries and all information returned by the application to users must be in English. This includes API messages, validation errors, deployment results, and operational log messages. Comments are currently exempt from this requirement.
 - Keep configuration under the `Updater` section. Sources are `appsettings.json`, optional `/config/updater.json`, then environment variables; use `__` for nested environment keys. Avoid splitting indexed lists such as `Targets` across sources.
 - Preserve the API's structured result/error contract and HTTP status semantics.
 - Sanitize untrusted values before logging; never log webhook tokens or commit secrets.

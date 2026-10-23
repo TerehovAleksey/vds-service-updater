@@ -57,4 +57,15 @@ public class ImageRequestValidatorTests
     [Fact]
     public void Invalid_format_is_422() =>
         Assert.Equal(422, Create().Validate("ghcr.io/myorg/app:1;ls").StatusCode);
+
+    [Fact]
+    public void Validation_errors_are_in_English()
+    {
+        Assert.Equal("Specify an image tag (for example, app:1.4.2).",
+            Create().Validate("ghcr.io/myorg/app").Message);
+        Assert.Equal("Image is not in the list of allowed prefixes.",
+            Create().Validate("ghcr.io/other/app:1").Message);
+        Assert.Equal("The latest tag is forbidden by configuration.",
+            Create().Validate("ghcr.io/myorg/app:latest").Message);
+    }
 }

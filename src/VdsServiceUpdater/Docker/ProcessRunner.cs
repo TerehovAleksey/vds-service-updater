@@ -41,12 +41,12 @@ public sealed class ProcessRunner(ILogger<ProcessRunner> logger) : IProcessRunne
         process.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.AppendLine(e.Data); };
         process.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
 
-        logger.LogInformation("Запуск: {Command}", LogSanitizer.Sanitize($"{spec.FileName} {string.Join(' ', spec.Args)}", 400));
+        logger.LogInformation("Starting process: {Command}", LogSanitizer.Sanitize($"{spec.FileName} {string.Join(' ', spec.Args)}", 400));
 
         try { process.Start(); }
         catch (Win32Exception ex)
         {
-            return new ProcessResult(127, "", $"Не удалось запустить '{spec.FileName}': {ex.Message}", false);
+            return new ProcessResult(127, "", $"Failed to start '{spec.FileName}': {ex.Message}", false);
         }
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();

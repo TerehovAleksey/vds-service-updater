@@ -17,7 +17,7 @@ public sealed class ServiceDeployer(DockerCli docker, IOptions<UpdaterOptions> o
     public async Task<(bool Ok, string Message)> ValidateFileAsync(TargetOptions target, CancellationToken ct)
     {
         var r = await docker.ComposeConfigCheckAsync(target, ct);
-        return r.Success ? (true, "ok") : (false, Describe("Файл не проходит `docker compose config`", r));
+        return r.Success ? (true, "ok") : (false, Describe("File failed `docker compose config` validation", r));
     }
 
     public async Task<(bool Success, string? Error)> RemoveImageAsync(string image, CancellationToken ct)
@@ -25,7 +25,7 @@ public sealed class ServiceDeployer(DockerCli docker, IOptions<UpdaterOptions> o
         var result = await docker.ImageRemoveAsync(image, ct);
         return result.Success
             ? (true, null)
-            : (false, Describe("docker image rm не выполнен", result));
+            : (false, Describe("docker image rm failed", result));
     }
 
     /// <param name="images">сервис → полное значение image (как записано в файле), которое должно работать.</param>
@@ -37,7 +37,7 @@ public sealed class ServiceDeployer(DockerCli docker, IOptions<UpdaterOptions> o
         var clock = Stopwatch.StartNew();
         TimeSpan Remaining() => timeout - clock.Elapsed;
 
-        logger.LogInformation("Применение {Type}/{Target}: {Services}", target.Type, target.Name, images);
+        logger.LogInformation("Applying {Type} deployment to {Target}: {Services}", target.Type, target.Name, images);
         var results = target.Type == TargetType.Compose
             ? await ApplyComposeAsync(target, images, Remaining, ct)
             : target.ApplyMode == StackApplyMode.StackDeploy
@@ -45,7 +45,7 @@ public sealed class ServiceDeployer(DockerCli docker, IOptions<UpdaterOptions> o
                 : await ApplySwarmServicesAsync(target, images, Remaining, ct);
 
         foreach (var r in results)
-            logger.LogInformation("Результат {Target}/{Service}: {Success} ({Message})", target.Name, r.Service, r.Success, r.Message);
+            logger.LogInformation("Deployment result for {Target}/{Service}: {Success} ({Message})", target.Name, r.Service, r.Success, r.Message);
         return results;
     }
 
@@ -56,13 +56,13 @@ public sealed class ServiceDeployer(DockerCli docker, IOptions<UpdaterOptions> o
     {
         var services = images.Keys.ToArray();
 
-        if (remaining() <= TimeSpan.Zero) return FailAll(services, "Истекло время, отведённое на деплой.");
+        if (remaining() <= TimeSpan.Zero) return FailAll(services, "The deployment time limit has expired.");
         var pull = await docker.ComposePullAsync(t, services, remaining(), ct);
-        if (!pull.Success) return FailAll(services, Describe("docker compose pull не выполнен", pull));
+        if (!pull.Success) return FailAll(services, Describe("docker compose pull failed", pull));
 
-        if (remaining() <= TimeSpan.Zero) return FailAll(services, "Истекло время, отведённое на деплой.");
+        if (remaining() <= TimeSpan.Zero) return FailAll(services, "The deployment time limit has expired.");
         var up = await docker.ComposeUpAsync(t, services, remaining(), ct);
-        if (!up.Success) return FailAll(services, Describe("docker compose up не выполнен", up));
+        if (!up.Success) return FailAll(services, Describe("docker compose up failed", up));
 
         var stability = TimeSpan.FromSeconds(options.Value.Deploy.StabilitySeconds);
         var tasks = services.Select(async service =>
@@ -92,10 +92,10 @@ public sealed class ServiceDeployer(DockerCli docker, IOptions<UpdaterOptions> o
             {
                 var before = await docker.GetServiceAsync(name, ct);
                 if (before is null) return Missing(service, name);
-                if (AlreadyDeployed(before, image)) return new ServiceApplyResult(service, true, "Сервис уже работает с этим образом.");
+                if (AlreadyDeployed(before, image)) return new ServiceApplyResult(service, true, "Service is already running with this image.");
 
                 var upd = await docker.ServiceUpdateImageAsync(name, image, remaining(), ct);
-                if (!upd.Success) return new ServiceApplyResult(service, false, Describe("docker service update не выполнен", upd));
+                if (!upd.Success) return new ServiceApplyResult(service, false, Describe("docker service update failed", upd));
 
                 return await WaitSwarmAsync(service, name, before, remaining, ct);
             }
@@ -122,16 +122,16 @@ public sealed class ServiceDeployer(DockerCli docker, IOptions<UpdaterOptions> o
         catch (DockerCommandException ex) { return FailAll(services, ex.Message); }
 
         var render = await docker.ComposeConfigRenderAsync(t, ct);
-        if (!render.Success) return FailAll(services, Describe("docker compose config не выполнен", render));
+        if (!render.Success) return FailAll(services, Describe("docker compose config failed", render));
 
         var deploy = await docker.StackDeployAsync(t.StackName!, render.StdOut, remaining(), ct);
-        if (!deploy.Success) return FailAll(services, Describe("docker stack deploy не выполнен", deploy));
+        if (!deploy.Success) return FailAll(services, Describe("docker stack deploy failed", deploy));
 
         var tasks = services.Select(async s =>
         {
             try
             {
-                if (AlreadyDeployed(before[s], images[s])) return new ServiceApplyResult(s, true, "Сервис уже работает с этим образом.");
+                if (AlreadyDeployed(before[s], images[s])) return new ServiceApplyResult(s, true, "Service is already running with this image.");
                 return await WaitSwarmAsync(s, $"{t.StackName}_{s}", before[s], remaining, ct);
             }
             catch (DockerCommandException ex) { return new ServiceApplyResult(s, false, ex.Message); }
@@ -153,14 +153,14 @@ public sealed class ServiceDeployer(DockerCli docker, IOptions<UpdaterOptions> o
         (info.Image ?? "").Split('@')[0] == image && info.UpdateState is not ("updating" or "rollback_started");
 
     private static ServiceApplyResult Missing(string service, string name) =>
-        new(service, false, $"Сервис '{name}' не найден в swarm (стек развёрнут?).");
+        new(service, false, $"Service '{name}' was not found in Swarm (is the stack deployed?).");
 
     private static IReadOnlyList<ServiceApplyResult> FailAll(IEnumerable<string> services, string message) =>
         services.Select(s => new ServiceApplyResult(s, false, message)).ToArray();
 
     private string Describe(string what, ProcessResult r)
     {
-        var reason = r.TimedOut ? "таймаут" : $"код {r.ExitCode}";
+        var reason = r.TimedOut ? "timed out" : $"exit code {r.ExitCode}";
         var output = r.StdErr.Trim().Length > 0 ? r.StdErr : r.StdOut;
         return $"{what} ({reason}): {OutputSanitizer.Prepare(output, [options.Value.Auth.Token])}";
     }

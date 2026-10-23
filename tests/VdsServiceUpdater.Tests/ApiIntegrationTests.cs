@@ -76,7 +76,7 @@ public class ApiIntegrationTests
         var sw = Stopwatch.StartNew();
         while (!condition())
         {
-            if (sw.ElapsedMilliseconds > timeoutMs) throw new TimeoutException("Условие не выполнилось за отведённое время.");
+            if (sw.ElapsedMilliseconds > timeoutMs) throw new TimeoutException("Condition was not met within the allotted time.");
             await Task.Delay(20, TestContext.Current.CancellationToken);
         }
     }
@@ -242,7 +242,7 @@ public class ApiIntegrationTests
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var call = f.CreateClient().SendAsync(Post(Body("ghcr.io/org/app:2.0")), cts.Token);
-        Assert.True(started.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), "деплой не дошёл до docker compose up");
+        Assert.True(started.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), "Deployment did not reach docker compose up.");
 
         cts.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);
